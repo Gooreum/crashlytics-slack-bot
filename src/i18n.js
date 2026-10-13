@@ -130,6 +130,12 @@ ${description || "Claude AI가 분석한 크래시 원인을 기반으로 수정
   },
 };
 
+/** Language choices shown by `init`, each in its own language. */
+const LANGUAGE_OPTIONS = [
+  { value: "en", label: "English" },
+  { value: "ko", label: "한국어" },
+];
+
 /**
  * Returns the message dictionary for a language (falls back to English).
  * @param {string} [language]
@@ -149,4 +155,4 @@ function prProgress(msg, done) {
   return `${msg.prCreating}\n\n${lines.join("\n")}`;
 }
 
-module.exports = { ALERTS, MESSAGES, t, prProgress };
+module.exports = { ALERTS, MESSAGES, LANGUAGE_OPTIONS, t, prProgress };
