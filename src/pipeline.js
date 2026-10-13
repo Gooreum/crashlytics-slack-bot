@@ -1,7 +1,9 @@
 "use strict";
 
 const { detectPlatform, extractFileInfoFromIssue } = require("./crash-parser");
-const { t } = require("./i18n");
+const { ALERTS, t } = require("./i18n");
+
+const DEFAULT_EMOJI = "🚨";
 
 /**
  * Crash analysis pipeline:
@@ -12,6 +14,7 @@ class Pipeline {
     this.slack = slackService;
     this.github = githubService;
     this.claude = claudeService;
+    this.language = language;
     this.msg = t(language);
     this.platform = platform;
     this.logger = logger;
@@ -20,10 +23,13 @@ class Pipeline {
   /**
    * Runs the pipeline.
    * @param {Object} event - Crashlytics event (or a compatible object)
-   * @param {string} typeLabel - alert label, e.g. "New fatal issue"
-   * @param {string} emoji - e.g. "🔥"
+   * @param {string} alertTypeOrLabel - an ALERTS key ("fatal", "velocity", …) or a custom label
+   * @param {string} [emoji] - custom emoji; when given, the second argument is used as-is
    */
-  async run(event, typeLabel, emoji) {
+  async run(event, alertTypeOrLabel, emoji) {
+    const { typeLabel, emoji: alertEmoji } = this._resolveAlert(alertTypeOrLabel, emoji);
+    emoji = alertEmoji;
+
     const payload = event.data?.payload || event.payload || event.data;
     const issue = payload?.issue;
 
@@ -67,6 +73,12 @@ class Pipeline {
         this.logger.error("Failed to post the error message as well");
       }
     }
+  }
+
+  _resolveAlert(alertTypeOrLabel, emoji) {
+    const alert = emoji === undefined ? ALERTS[alertTypeOrLabel] : undefined;
+    if (alert) return { typeLabel: alert.label[this.language] || alert.label.en, emoji: alert.emoji };
+    return { typeLabel: alertTypeOrLabel, emoji: emoji || DEFAULT_EMOJI };
   }
 }
 

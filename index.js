@@ -31,7 +31,7 @@ const { createFunctions, ALERT_TRIGGERS, SECRET_NAMES } = require("./src/functio
  * @param {Object} [config.logger]            - Custom logger (default: console)
  *
  * @returns {{
- *   analyzeCrash: (event, typeLabel, emoji) => Promise<void>,
+ *   analyzeCrash: (event, alertTypeOrLabel, emoji?) => Promise<void>,
  *   handleSlackInteraction: (req, res) => Promise<void>
  * }}
  */
@@ -55,8 +55,11 @@ function createCrashlyticsBot(config) {
     /**
      * Runs the crash analysis pipeline.
      * Crashlytics event → Slack alert → GitHub source lookup → Claude analysis → Slack thread
+     *
+     * analyzeCrash(event, "fatal")               — built-in label/emoji for an alert type
+     * analyzeCrash(event, "Custom label", "🧪")  — custom label and emoji
      */
-    analyzeCrash: (event, typeLabel, emoji) => pipeline.run(event, typeLabel, emoji),
+    analyzeCrash: (event, alertTypeOrLabel, emoji) => pipeline.run(event, alertTypeOrLabel, emoji),
 
     /**
      * Handles Slack button interactions (req, res handler).
