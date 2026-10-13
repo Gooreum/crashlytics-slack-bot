@@ -232,9 +232,9 @@ const WIZARD = {
       "4. 왼쪽 메뉴 → Basic Information → App Credentials → Signing Secret → Show 클릭 후 복사",
       `Interactivity URL은 manifest에 이미 들어 있습니다: ${url}`,
     ].join("\n"),
-    slackBotTokenPrompt: "Slack Bot User OAuth Token (xoxb-…)",
+    slackBotTokenPrompt: "Slack 봇 토큰 (Bot User OAuth Token, xoxb-…)",
     slackBotTokenFormat: "봇 토큰은 xoxb-로 시작합니다. OAuth & Permissions에서 복사하세요.",
-    signingSecretPrompt: "Slack Signing Secret (Basic Information → App Credentials → Show)",
+    signingSecretPrompt: "Slack Signing Secret (Basic Information → App Credentials → Show 클릭 후 복사)",
 
     channelTitle: "Slack 채널 ID 찾기",
     channelSteps: [

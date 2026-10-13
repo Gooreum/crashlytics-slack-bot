@@ -6,6 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { runInit } = require("../src/cli/init");
+const { WIZARD, LANGUAGE_PROMPT } = require("../src/cli/messages");
 
 const CANCEL = Symbol("cancel");
 
@@ -42,10 +43,11 @@ function fakeUi(answers) {
 }
 
 const ANSWERS = [
+  "en", // language
+  true, // checklist ready
   "demo", // project
   "asia-northeast3", // region
   "ios", // platform
-  "en", // language
   "acme", "app", "main", // github owner/repo/branch
   "ghp_good", // github token
   "sk-ant-good", // anthropic key
@@ -117,12 +119,13 @@ test("TC-1 full setup writes files, stores secrets, then deploys", async () => {
   } finally { s.cleanup(); }
 });
 
-test("TC-2 missing firebase CLI stops before any prompt", async () => {
+test("TC-2 missing firebase CLI stops before any setup question", async () => {
   const s = setup({ firebase: { isInstalled: async () => false } });
   try {
     assert.equal(await s.run(), 1);
     assert.ok(s.ui.shown.cancel.includes("npm install -g firebase-tools"));
-    assert.equal(s.ui.shown.prompts.length, 0);
+    // only the language and checklist questions come before the Firebase check
+    assert.equal(s.ui.shown.prompts.length, 2);
   } finally { s.cleanup(); }
 });
 
@@ -136,7 +139,7 @@ test("TC-3 not logged in stops with a login hint", async () => {
 
 test("TC-4 invalid GitHub token is asked again", async () => {
   const answers = [...ANSWERS];
-  answers.splice(7, 1, "ghp_bad", "ghp_good");
+  answers.splice(8, 1, "ghp_bad", "ghp_good");
   const fetch = okFetch({ "ghp_bad": 401 }).fetch;
   const s = setup({ answers, fetch });
   try {
@@ -157,7 +160,7 @@ test("TC-5 --skip-deploy stops after secrets", async () => {
 });
 
 test("TC-6 cancelling a prompt changes nothing", async () => {
-  const s = setup({ answers: ["demo", "asia-northeast3", CANCEL] });
+  const s = setup({ answers: ["en", true, "demo", "asia-northeast3", CANCEL] });
   try {
     assert.equal(await s.run(), 1);
     assert.equal(s.ui.shown.cancel, "Setup cancelled.");
@@ -204,5 +207,64 @@ test("TC-10 Slack step shows the manifest link and interactivity URL", async () 
     const slackNote = s.ui.shown.notes.find((n) => n.includes("api.slack.com/apps?new_app=1&manifest_json="));
     assert.ok(slackNote);
     assert.ok(slackNote.includes("https://asia-northeast3-demo.cloudfunctions.net/crashlyticsSlackInteraction"));
+  } finally { s.cleanup(); }
+});
+
+// ── Language first + checklist ──
+
+test("S2-TC-1 the first question is the bilingual language prompt", async () => {
+  const s = setup();
+  try {
+    await s.run();
+    assert.equal(s.ui.shown.prompts[0].kind, "select");
+    assert.equal(s.ui.shown.prompts[0].message, LANGUAGE_PROMPT);
+  } finally { s.cleanup(); }
+});
+
+test("S2-TC-2 the checklist is shown and confirmed right after the language", async () => {
+  const s = setup();
+  try {
+    await s.run();
+    const checklist = s.ui.shown.notes[0];
+    assert.equal(checklist.split("☐").length - 1, 5);
+    assert.equal(s.ui.shown.prompts[1].kind, "confirm");
+    assert.equal(s.ui.shown.prompts[1].message, WIZARD.en.checklistConfirm);
+  } finally { s.cleanup(); }
+});
+
+test("S2-TC-3 declining the checklist stops without touching anything", async () => {
+  let firebaseCalled = false;
+  const s = setup({ answers: ["en", false], firebase: { isInstalled: async () => { firebaseCalled = true; return true; } } });
+  try {
+    assert.equal(await s.run(), 1);
+    assert.equal(s.ui.shown.cancel, WIZARD.en.checklistNotReady);
+    assert.equal(firebaseCalled, false);
+    assert.deepEqual(s.order, []);
+    assert.equal(fs.existsSync(path.join(s.cwd, "crashlytics-slack-bot")), false);
+  } finally { s.cleanup(); }
+});
+
+test("S2-TC-4 Korean wizard speaks Korean end to end", async () => {
+  const s = setup({ answers: ["ko", ...ANSWERS.slice(1)] });
+  try {
+    assert.equal(await s.run(), 0);
+    const ko = WIZARD.ko;
+    const hangul = /[가-힣]/;
+    // every prompt after the bilingual language question is Korean
+    for (const p of s.ui.shown.prompts.slice(1)) assert.ok(hangul.test(p.message), p.message);
+    assert.ok(s.ui.shown.notes[0].includes(ko.checklist[0]));
+    assert.equal(s.ui.shown.outro, ko.done("crashlytics-slack-bot"));
+    assert.ok(s.ui.shown.logs.includes(ko.inviteBot));
+    const config = JSON.parse(fs.readFileSync(path.join(s.cwd, "crashlytics-slack-bot", "functions", "crashlytics-slack-bot.config.json"), "utf8"));
+    assert.equal(config.language, "ko");
+  } finally { s.cleanup(); }
+});
+
+test("S2-TC-6 Blaze is no longer announced right before deploying", async () => {
+  const s = setup();
+  try {
+    await s.run();
+    assert.equal(s.ui.shown.logs.some((l) => l.includes("Blaze")), false);
+    assert.ok(s.ui.shown.notes[0].includes("Blaze"));
   } finally { s.cleanup(); }
 });

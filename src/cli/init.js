@@ -7,6 +7,7 @@ const { createFirebase } = require("./firebase");
 const { detectGitHubRepo, detectDefaultBranch } = require("./detect");
 const { buildProjectFiles } = require("./templates");
 const { buildManifest, interactivityUrl, manifestUrl } = require("./slack-manifest");
+const { LANGUAGE_PROMPT, wizardMessages } = require("./messages");
 const { SECRET_NAMES, DEFAULT_REGION } = require("../functions");
 const { LANGUAGE_OPTIONS } = require("../i18n");
 
@@ -76,12 +77,14 @@ function defaultDeps() {
  */
 async function runInit(options, deps = defaultDeps()) {
   const { ui, firebase, fetch, fs, cwd } = deps;
+  let m = wizardMessages("en");
 
   const ask = async (prompt) => {
     const value = await prompt;
     if (ui.isCancel(value)) throw new Cancelled();
     return value;
   };
+  const required = (v) => (v ? undefined : m.required);
 
   // Ask until `check` accepts the value (check returns an error message or null).
   const askValid = async (makePrompt, check, checkingMessage) => {
@@ -95,104 +98,95 @@ async function runInit(options, deps = defaultDeps()) {
       } catch (e) {
         error = e.message;
       }
-      spinner.stop(error ? "Check failed" : "Looks good");
+      spinner.stop(error ? m.checkFailed : m.checkOk);
       if (!error) return value;
       ui.log.error(error);
     }
   };
 
-  ui.intro("crashlytics-slack-bot setup");
-
   try {
-    // 1. Firebase CLI
+    // 0. Language first, so the rest of the wizard speaks it
+    const language = await ask(ui.select({ message: LANGUAGE_PROMPT, options: LANGUAGE_OPTIONS }));
+    m = wizardMessages(language);
+    ui.intro(m.intro);
+
+    // 1. Prerequisites
+    ui.note(m.checklist.map((item) => `☐ ${item}`).join("\n"), m.checklistTitle);
+    if (!(await ask(ui.confirm({ message: m.checklistConfirm, initialValue: true })))) {
+      ui.cancel(m.checklistNotReady);
+      return 1;
+    }
+
+    // 2. Firebase CLI
     if (!(await firebase.isInstalled())) {
-      ui.cancel("Firebase CLI not found. Install it with: npm install -g firebase-tools");
+      ui.cancel(m.firebaseMissing);
       return 1;
     }
     if (!(await firebase.isLoggedIn())) {
-      ui.cancel("You're not logged in to Firebase. Run: firebase login");
+      ui.cancel(m.firebaseLogin);
       return 1;
     }
     const projects = await firebase.listProjects();
     if (projects.length === 0) {
-      ui.cancel("No Firebase projects found. Create one at https://console.firebase.google.com");
+      ui.cancel(m.noProjects);
       return 1;
     }
 
-    // 2. Firebase project and app
+    // 3. Firebase project and app
     const projectId = await ask(ui.select({
-      message: "Firebase project",
+      message: m.projectPrompt,
       options: projects.map((p) => ({ value: p.projectId, label: p.displayName, hint: p.projectId })),
     }));
     const region = await ask(ui.select({
-      message: "Cloud Functions region",
+      message: m.regionPrompt,
       options: REGIONS.map((r) => ({ value: r, label: r })),
       initialValue: DEFAULT_REGION,
     }));
     const platform = await ask(ui.select({
-      message: "App platform",
-      options: [
-        { value: "ios", label: "iOS (Swift / Objective-C)" },
-        { value: "android", label: "Android (Kotlin / Java)" },
-        { value: "auto", label: "Both — detect from each alert" },
-      ],
-    }));
-    const language = await ask(ui.select({
-      message: "Language for Slack messages and AI analysis",
-      options: LANGUAGE_OPTIONS,
+      message: m.platformPrompt,
+      options: ["ios", "android", "auto"].map((value) => ({ value, label: m.platformOptions[value] })),
     }));
 
-    // 3. GitHub
+    // 4. GitHub
     const detected = deps.detectRepo(cwd) || {};
-    const owner = await ask(ui.text({ message: "GitHub owner (user or organization)", initialValue: detected.owner, validate: (v) => (v ? undefined : "Required") }));
-    const repo = await ask(ui.text({ message: "GitHub repository with the app's source code", initialValue: detected.repo, validate: (v) => (v ? undefined : "Required") }));
-    const branch = await ask(ui.text({ message: "Base branch for fix PRs", initialValue: deps.detectBranch(cwd), validate: (v) => (v ? undefined : "Required") }));
-    ui.note(
-      "Create a fine-grained token at https://github.com/settings/personal-access-tokens/new\n" +
-      `Repository access: ${owner}/${repo}\n` +
-      "Permissions: Contents (read & write), Pull requests (read & write), Issues (read & write)",
-      "GitHub token"
-    );
+    const owner = await ask(ui.text({ message: m.githubOwnerPrompt, initialValue: detected.owner, validate: required }));
+    const repo = await ask(ui.text({ message: m.githubRepoPrompt, initialValue: detected.repo, validate: required }));
+    const branch = await ask(ui.text({ message: m.githubBranchPrompt, initialValue: deps.detectBranch(cwd), validate: required }));
+    ui.note(m.githubTokenSteps(owner, repo), m.githubTokenTitle);
     const githubToken = await askValid(
-      () => ui.password({ message: "GitHub token", validate: (v) => (v ? undefined : "Required") }),
+      () => ui.password({ message: m.githubTokenPrompt, validate: required }),
       (token) => checkGitHub(fetch, token, owner, repo),
-      "Checking GitHub access…"
+      m.checking.github
     );
 
-    // 4. Anthropic
+    // 5. Anthropic
     const anthropicApiKey = await askValid(
-      () => ui.password({ message: "Anthropic API key (https://console.anthropic.com/settings/keys)", validate: (v) => (v ? undefined : "Required") }),
+      () => ui.password({ message: m.anthropicPrompt, validate: required }),
       (key) => checkAnthropic(fetch, key),
-      "Checking Anthropic API key…"
+      m.checking.anthropic
     );
 
-    // 5. Slack — the interactivity URL is known before deploying, so the manifest is complete.
+    // 6. Slack — the interactivity URL is known before deploying, so the manifest is complete.
     const requestUrl = interactivityUrl(region, projectId);
-    ui.note(
-      `1. Create the Slack app from this pre-filled manifest:\n   ${manifestUrl(buildManifest({ interactivityUrl: requestUrl }))}\n` +
-      "2. Click \"Install to Workspace\".\n" +
-      "3. Copy the Bot User OAuth Token (OAuth & Permissions) and the Signing Secret (Basic Information).\n" +
-      `Interactivity URL (already in the manifest): ${requestUrl}`,
-      "Slack app"
-    );
+    ui.note(m.slackSteps(manifestUrl(buildManifest({ interactivityUrl: requestUrl })), requestUrl), m.slackTitle);
     const slackBotToken = await askValid(
-      () => ui.password({ message: "Slack Bot User OAuth Token (xoxb-…)", validate: (v) => (v?.startsWith("xoxb-") ? undefined : "Bot tokens start with xoxb-") }),
+      () => ui.password({ message: m.slackBotTokenPrompt, validate: (v) => (v?.startsWith("xoxb-") ? undefined : m.slackBotTokenFormat) }),
       (token) => checkSlack(fetch, token),
-      "Checking Slack token…"
+      m.checking.slack
     );
-    const slackSigningSecret = await ask(ui.password({ message: "Slack Signing Secret", validate: (v) => (v ? undefined : "Required") }));
+    const slackSigningSecret = await ask(ui.password({ message: m.signingSecretPrompt, validate: required }));
     const channelId = await ask(ui.text({
-      message: "Slack channel ID for alerts (channel details → bottom, e.g. C0123456789)",
-      validate: (v) => (/^[CG][A-Z0-9]{6,}$/.test(v || "") ? undefined : "Channel IDs look like C0123456789"),
+      message: m.channelPrompt,
+      validate: (v) => (/^[CG][A-Z0-9]{6,}$/.test(v || "") ? undefined : m.channelFormat),
     }));
-    ui.log.info("Invite the bot to that channel: /invite @Crashlytics Bot");
+    ui.log.info(m.inviteBot);
 
-    // 6. Files
+    // 7. Files
     const targetDir = path.resolve(cwd, options.dir);
     if (fs.existsSync(targetDir) && fs.readdirSync(targetDir).length > 0) {
-      const overwrite = await ask(ui.confirm({ message: `${targetDir} is not empty. Overwrite generated files?`, initialValue: false }));
+      const overwrite = await ask(ui.confirm({ message: m.notEmpty(targetDir), initialValue: false }));
       if (!overwrite) {
-        ui.cancel("Setup cancelled — nothing was changed.");
+        ui.cancel(m.cancelledNothing);
         return 1;
       }
     }
@@ -208,9 +202,9 @@ async function runInit(options, deps = defaultDeps()) {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, content);
     }
-    ui.log.success(`Created ${path.relative(cwd, targetDir) || "."}/`);
+    ui.log.success(m.created(path.relative(cwd, targetDir) || "."));
 
-    // 7. Secrets
+    // 8. Secrets
     const secretValues = {
       [SECRET_NAMES.slackBotToken]: slackBotToken,
       [SECRET_NAMES.slackSigningSecret]: slackSigningSecret,
@@ -218,36 +212,32 @@ async function runInit(options, deps = defaultDeps()) {
       [SECRET_NAMES.githubToken]: githubToken,
     };
     const spinner = ui.spinner();
-    spinner.start("Storing secrets in Secret Manager…");
+    spinner.start(m.storingSecrets);
     for (const [name, value] of Object.entries(secretValues)) {
       await firebase.setSecret(name, value, projectId);
     }
-    spinner.stop("Secrets stored");
+    spinner.stop(m.secretsStored);
 
-    // 8. Deploy
+    // 9. Deploy
     const deployCommand = `cd ${options.dir}/functions && npm install && cd .. && firebase deploy --only functions:crashlytics-slack-bot --project ${projectId}`;
     if (options["skip-deploy"]) {
-      ui.outro(`Files and secrets are ready. Deploy when you're ready:\n  ${deployCommand}`);
+      ui.outro(m.skipDeployOutro(deployCommand));
       return 0;
     }
-    ui.log.info("Cloud Functions require the Blaze (pay-as-you-go) plan on your Firebase project.");
     try {
       await deps.npmInstall(path.join(targetDir, "functions"));
       await firebase.deploy(projectId, targetDir);
     } catch (error) {
       ui.log.error(error.message);
-      ui.outro(`Deployment failed. Fix the error above, then run:\n  ${deployCommand}`);
+      ui.outro(m.deployFailed(deployCommand));
       return 1;
     }
 
-    ui.outro(
-      "Done! New Crashlytics alerts will show up in Slack.\n" +
-      `Send a test alert now: npx crashlytics-slack-bot test --dir ${options.dir}`
-    );
+    ui.outro(m.done(options.dir));
     return 0;
   } catch (error) {
     if (error instanceof Cancelled) {
-      ui.cancel("Setup cancelled.");
+      ui.cancel(m.cancelled);
       return 1;
     }
     throw error;
