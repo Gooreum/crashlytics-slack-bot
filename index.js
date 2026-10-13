@@ -60,7 +60,7 @@ function createCrashlyticsBot(config) {
   };
 
   const pipeline = new Pipeline(services, logger);
-  const interactionHandler = new InteractionHandler(services, logger);
+  const interactionHandler = new InteractionHandler(services, logger, validatedConfig.slack);
 
   return {
     /**

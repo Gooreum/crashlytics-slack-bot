@@ -1,5 +1,7 @@
 "use strict";
 
+const { verifySlackSignature } = require("./slack-signature");
+
 /**
  * Slack 버튼 인터랙션 핸들러를 생성합니다.
  * - GitHub Issue 생성 (create_github_issue)
@@ -10,11 +12,12 @@
  * 모든 작업을 완료한 후 res.send()를 호출해야 합니다.
  */
 class InteractionHandler {
-  constructor({ slackService, githubService, claudeService }, logger) {
+  constructor({ slackService, githubService, claudeService }, logger, { signingSecret }) {
     this.slack = slackService;
     this.github = githubService;
     this.claude = claudeService;
     this.logger = logger;
+    this.signingSecret = signingSecret;
   }
 
   /**
@@ -26,6 +29,19 @@ class InteractionHandler {
       method: req.method,
       contentType: req.headers["content-type"],
     });
+
+    // Slack이 보낸 요청인지 검증 (Firebase Functions는 req.rawBody를 제공)
+    const verified = verifySlackSignature({
+      signingSecret: this.signingSecret,
+      rawBody: req.rawBody,
+      timestamp: req.headers["x-slack-request-timestamp"],
+      signature: req.headers["x-slack-signature"],
+    });
+    if (!verified) {
+      this.logger.warn("Rejected Slack request: invalid signature");
+      res.status(401).send("invalid signature");
+      return;
+    }
 
     let payload;
     try {
