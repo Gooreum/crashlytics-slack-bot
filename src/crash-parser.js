@@ -1,95 +1,82 @@
 "use strict";
 
-// iOS 크래시 패턴 사전
-const IOS_CRASH_PATTERNS = {
-  "EXC_BAD_ACCESS":
-    "메모리 접근 위반 — 해제된 객체 접근, 댕글링 포인터, force unwrap nil",
-  "EXC_BREAKPOINT":
-    "Swift 런타임 에러 — force unwrap(!), fatalError(), 배열 인덱스 초과",
-  "EXC_CRASH (SIGABRT)":
-    "명시적 abort — assertion failure, uncaught exception, precondition 실패",
-  "EXC_RESOURCE":
-    "리소스 한도 초과 — 메모리 제한, CPU 과사용, Watchdog 타임아웃",
-  "EXC_BAD_INSTRUCTION":
-    "잘못된 명령어 — implicitly unwrapped optional이 nil",
-  SIGABRT:
-    "프로세스 abort — NSException, fatalError, 메인스레드 외 UI 업데이트",
-  SIGSEGV: "세그멘테이션 폴트 — 잘못된 메모리 접근, C/C++ interop 관련",
+// Common crash signatures per platform, used as hints for Claude.
+const CRASH_PATTERNS = {
+  ios: {
+    "EXC_BAD_ACCESS": "Memory access violation — deallocated object, dangling pointer, force-unwrapped nil",
+    "EXC_BREAKPOINT": "Swift runtime trap — force unwrap (!), fatalError(), array index out of range",
+    "EXC_CRASH (SIGABRT)": "Explicit abort — assertion failure, uncaught exception, precondition failure",
+    "EXC_RESOURCE": "Resource limit exceeded — memory limit, CPU usage, watchdog timeout",
+    "EXC_BAD_INSTRUCTION": "Illegal instruction — implicitly unwrapped optional was nil",
+    SIGABRT: "Process abort — NSException, fatalError, UI update off the main thread",
+    SIGSEGV: "Segmentation fault — invalid memory access, C/C++ interop",
+  },
+  android: {
+    NullPointerException: "Null dereference — lateinit not initialized, !! on null, platform type from Java",
+    IllegalStateException: "Invalid state — Fragment not attached, lifecycle misuse, check()/error()",
+    IllegalArgumentException: "Invalid argument — require() failed, bad navigation args",
+    IndexOutOfBoundsException: "Index out of range on a list or array",
+    ClassCastException: "Unsafe cast (as) between incompatible types",
+    ConcurrentModificationException: "Collection modified while iterating",
+    OutOfMemoryError: "Memory exhausted — large bitmaps, leaks",
+    ANR: "Main thread blocked for more than 5 seconds",
+  },
 };
 
+// Source extensions for iOS (Swift / Objective-C) and Android (Kotlin / Java)
+const SOURCE_EXT = "(?:swift|mm|m|kt|java)";
+
 /**
- * iOS 스택트레이스를 파싱하여 프레임 배열을 반환합니다.
- * @param {string} stacktrace
- * @returns {Array<{frameNumber, module, method, file, line}>}
+ * Detects the app platform from a Firebase app ID ("1:123:ios:abc" / "1:123:android:abc").
+ * An explicitly configured platform ("ios" / "android") wins over detection.
+ * @param {string} appId
+ * @param {string} [configured] - "auto" | "ios" | "android"
+ * @returns {"ios"|"android"|"unknown"}
  */
-function parseIosStacktrace(stacktrace) {
-  if (!stacktrace) return [];
-  const frames = [];
-  const symbolicated =
-    /(\d+)\s+(\S+)\s+0x[\da-f]+\s+(.+?)\s+\+\s+\d+\s+\((\S+\.swift):(\d+)\)/gi;
-  const titlePattern = /(\w+\.swift)\s+line\s+(\d+)\s+in\s+(\S+)/gi;
-  let match;
-  while ((match = symbolicated.exec(stacktrace)) !== null) {
-    frames.push({
-      frameNumber: parseInt(match[1]),
-      module: match[2],
-      method: match[3].trim(),
-      file: match[4],
-      line: parseInt(match[5]),
-    });
-  }
-  while ((match = titlePattern.exec(stacktrace)) !== null) {
-    frames.push({
-      frameNumber: 0,
-      module: "App",
-      method: match[3].trim(),
-      file: match[1],
-      line: parseInt(match[2]),
-    });
-  }
-  return frames;
+function detectPlatform(appId, configured) {
+  if (configured && configured !== "auto") return configured;
+  if (/:ios:/.test(appId || "")) return "ios";
+  if (/:android:/.test(appId || "")) return "android";
+  return "unknown";
 }
 
 /**
- * Crashlytics 이슈 정보에서 Swift 파일명과 라인 번호를 추출합니다.
+ * Extracts source file names and line numbers from a Crashlytics issue.
  * @param {{title?: string, subtitle?: string}} issue
+ * @param {string} [platform] - used to infer the file extension from Class.method(
  * @returns {Array<{file: string, line: number|null}>}
  */
-function extractFileInfoFromIssue(issue) {
+function extractFileInfoFromIssue(issue, platform) {
   const files = [];
   const combined = `${issue.title || ""} ${issue.subtitle || ""}`;
-
-  // 패턴 1: File.swift:123
-  const fileLinePattern = /(\w+\.swift):(\d+)/g;
+  const has = (file) => files.some((f) => f.file === file);
   let match;
+
+  // Pattern 1: File.swift:123 / File.kt:123 (also Android frames "at a.b.C.m(File.kt:42)")
+  const fileLinePattern = new RegExp(`([\\w$]+\\.${SOURCE_EXT}):(\\d+)`, "g");
   while ((match = fileLinePattern.exec(combined)) !== null) {
-    files.push({ file: match[1], line: parseInt(match[2]) });
+    if (!has(match[1])) files.push({ file: match[1], line: parseInt(match[2]) });
   }
 
-  // 패턴 2: File.swift ... line 123
-  const fileLineSeparatePattern = /(\w+\.swift)\b.*?\bline\s+(\d+)/gi;
+  // Pattern 2: File.swift ... line 123
+  const fileLineSeparatePattern = new RegExp(`([\\w$]+\\.${SOURCE_EXT})\\b.*?\\bline\\s+(\\d+)`, "gi");
   while ((match = fileLineSeparatePattern.exec(combined)) !== null) {
-    if (!files.some((f) => f.file === match[1])) {
-      files.push({ file: match[1], line: parseInt(match[2]) });
-    }
+    if (!has(match[1])) files.push({ file: match[1], line: parseInt(match[2]) });
   }
 
-  // 패턴 3: File.swift 단독
-  const fileOnlyPattern = /(\w+\.swift)\b/g;
+  // Pattern 3: File.swift on its own
+  const fileOnlyPattern = new RegExp(`([\\w$]+\\.${SOURCE_EXT})\\b`, "g");
   while ((match = fileOnlyPattern.exec(combined)) !== null) {
-    if (!files.some((f) => f.file === match[1])) {
-      files.push({ file: match[1], line: null });
-    }
+    if (!has(match[1])) files.push({ file: match[1], line: null });
   }
 
-  // 패턴 4: ClassName.methodName( → ClassName.swift 추론 (패턴 1~3 실패 시만)
+  // Pattern 4: ClassName.methodName( → infer ClassName.<ext> (only if 1–3 found nothing)
   if (files.length === 0) {
+    const ext = platform === "android" ? "kt" : "swift";
     const classPattern = /(\w+)\.\w+\(/g;
     while ((match = classPattern.exec(combined)) !== null) {
-      const inferredFile = `${match[1]}.swift`;
-      if (!files.some((f) => f.file === inferredFile)) {
-        files.push({ file: inferredFile, line: null });
-      }
+      const inferredFile = `${match[1]}.${ext}`;
+      if (!has(inferredFile)) files.push({ file: inferredFile, line: null });
     }
   }
 
@@ -97,22 +84,24 @@ function extractFileInfoFromIssue(issue) {
 }
 
 /**
- * 크래시 타이틀에서 일치하는 iOS 크래시 패턴 설명을 반환합니다.
+ * Returns hints for known crash signatures found in the crash title.
  * @param {string} crashTitle
+ * @param {string} [platform]
  * @returns {string}
  */
-function getPatternHint(crashTitle) {
+function getPatternHint(crashTitle, platform) {
   const upper = (crashTitle || "").toUpperCase();
-  const hints = Object.entries(IOS_CRASH_PATTERNS)
-    .filter(([key]) => upper.includes(key))
+  const patterns = CRASH_PATTERNS[platform] || { ...CRASH_PATTERNS.ios, ...CRASH_PATTERNS.android };
+  const hints = Object.entries(patterns)
+    .filter(([key]) => upper.includes(key.toUpperCase()))
     .map(([, desc]) => `• ${desc}`)
     .join("\n");
-  return hints || "특정 패턴 매칭 없음";
+  return hints || "No known crash pattern matched";
 }
 
 module.exports = {
-  IOS_CRASH_PATTERNS,
-  parseIosStacktrace,
+  CRASH_PATTERNS,
+  detectPlatform,
   extractFileInfoFromIssue,
   getPatternHint,
 };

@@ -2,6 +2,7 @@
 
 const { WebClient } = require("@slack/web-api");
 const { t } = require("./i18n");
+const { detectPlatform } = require("./crash-parser");
 
 // Slack section blocks are limited to 3000 characters.
 const SLACK_BLOCK_LIMIT = 2900;
@@ -12,6 +13,7 @@ class SlackService {
     this.channelId = config.slack.channelId;
     this.github = config.github;
     this.firebase = config.firebase;
+    this.platform = config.platform;
     this.msg = t(config.language);
     this.logger = logger;
   }
@@ -32,8 +34,7 @@ class SlackService {
       return null;
     }
 
-    const fullAppId = event.appId || "";
-    const platform = fullAppId.includes("ios") ? this.msg.platformNames.ios : this.msg.platformNames.unknown;
+    const platform = this.msg.platformNames[detectPlatform(event.appId, this.platform)];
 
     const blocks = [
       {

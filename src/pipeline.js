@@ -1,6 +1,6 @@
 "use strict";
 
-const { extractFileInfoFromIssue } = require("./crash-parser");
+const { detectPlatform, extractFileInfoFromIssue } = require("./crash-parser");
 const { t } = require("./i18n");
 
 /**
@@ -8,11 +8,12 @@ const { t } = require("./i18n");
  * Crashlytics event → Slack alert → GitHub source lookup → Claude analysis → Slack thread
  */
 class Pipeline {
-  constructor({ slackService, githubService, claudeService }, logger, { language } = {}) {
+  constructor({ slackService, githubService, claudeService }, logger, { language, platform } = {}) {
     this.slack = slackService;
     this.github = githubService;
     this.claude = claudeService;
     this.msg = t(language);
+    this.platform = platform;
     this.logger = logger;
   }
 
@@ -37,7 +38,8 @@ class Pipeline {
 
     try {
       // 2. Extract file/line info from the issue
-      const fileInfo = extractFileInfoFromIssue(issue);
+      const platform = detectPlatform(event.appId, this.platform);
+      const fileInfo = extractFileInfoFromIssue(issue, platform);
       this.logger.log("Extracted file info:", fileInfo);
 
       // 3. Fetch source code from GitHub
@@ -48,11 +50,11 @@ class Pipeline {
       }
 
       // 4. Claude analysis (one retry on failure)
-      let analysis = await this.claude.analyze(issue, typeLabel, sourceResults);
+      let analysis = await this.claude.analyze(issue, typeLabel, sourceResults, platform);
       if (!analysis) {
         this.logger.warn("⚠️ Claude analysis failed, retrying in 5s…");
         await new Promise((r) => setTimeout(r, 5000));
-        analysis = await this.claude.analyze(issue, typeLabel, sourceResults);
+        analysis = await this.claude.analyze(issue, typeLabel, sourceResults, platform);
       }
 
       // 5. Post the analysis in the thread
