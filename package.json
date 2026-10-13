@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Firebase Crashlytics → Slack 알림 + Claude AI 분석 + GitHub PR 자동 생성 파이프라인",
   "main": "index.js",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
   "engines": {
     "node": ">=18"
   },
