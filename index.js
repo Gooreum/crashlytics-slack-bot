@@ -6,48 +6,34 @@ const { ClaudeService } = require("./src/claude-service");
 const { SlackService } = require("./src/slack-service");
 const { Pipeline } = require("./src/pipeline");
 const { InteractionHandler } = require("./src/interaction");
+const { createFunctions, ALERT_TRIGGERS, SECRET_NAMES } = require("./src/functions");
 
 /**
- * Crashlytics Slack Bot 인스턴스를 생성합니다.
+ * Creates a Crashlytics Slack bot instance.
  *
  * @param {Object} config
  * @param {Object} config.github
- * @param {string} config.github.owner    - GitHub organization 또는 사용자명
- * @param {string} config.github.repo     - 레포지토리 이름
- * @param {string} config.github.branch   - 기본 브랜치 (기본값: "main")
- * @param {string} config.github.token    - GitHub Personal Access Token
+ * @param {string} config.github.owner        - GitHub organization or user
+ * @param {string} config.github.repo         - Repository name
+ * @param {string} [config.github.branch]     - Base branch (default: "main")
+ * @param {string} config.github.token        - GitHub personal access token
  * @param {Object} config.slack
- * @param {string} config.slack.botToken  - Slack Bot OAuth Token
- * @param {string} config.slack.channelId - Slack 채널 ID
+ * @param {string} config.slack.botToken      - Slack bot OAuth token
+ * @param {string} config.slack.channelId     - Slack channel ID
+ * @param {string} config.slack.signingSecret - Slack app signing secret
  * @param {Object} config.claude
- * @param {string} config.claude.apiKey   - Anthropic API Key
+ * @param {string} config.claude.apiKey       - Anthropic API key
+ * @param {string} [config.claude.model]      - Claude model (default: "claude-opus-5-5")
  * @param {Object} [config.firebase]
- * @param {string} [config.firebase.projectId] - Firebase 프로젝트 ID (콘솔 링크용)
- * @param {Object} [config.logger]        - 커스텀 로거 (기본값: console)
+ * @param {string} [config.firebase.projectId] - Firebase project ID (for console links)
+ * @param {"auto"|"ios"|"android"} [config.platform] - App platform (default: "auto")
+ * @param {"en"|"ko"} [config.language]       - Message language (default: "en")
+ * @param {Object} [config.logger]            - Custom logger (default: console)
  *
  * @returns {{
- *   analyzeCrash: (event, typeLabel, emoji) => Promise<void>,
+ *   analyzeCrash: (event, alertTypeOrLabel, emoji?) => Promise<void>,
  *   handleSlackInteraction: (req, res) => Promise<void>
  * }}
- *
- * @example
- * // Firebase Cloud Functions
- * const { createCrashlyticsBot } = require('crashlytics-slack-bot');
- *
- * exports.postFatalToSlack = onNewFatalIssuePublished(secrets, async (event) => {
- *   const bot = createCrashlyticsBot({
- *     github: { owner: 'myorg', repo: 'myapp', branch: 'main', token: GITHUB_TOKEN.value() },
- *     slack: { botToken: SLACK_BOT_TOKEN.value(), channelId: 'C0123456' },
- *     claude: { apiKey: ANTHROPIC_KEY.value() },
- *     firebase: { projectId: 'my-firebase-project' },
- *   });
- *   await bot.analyzeCrash(event, '초기 치명적 문제 발생', '🔥');
- * });
- *
- * exports.slackInteraction = onRequest(secrets, async (req, res) => {
- *   const bot = createCrashlyticsBot({ ... });
- *   await bot.handleSlackInteraction(req, res);
- * });
  */
 function createCrashlyticsBot(config) {
   const validatedConfig = createConfig(config);
@@ -59,21 +45,27 @@ function createCrashlyticsBot(config) {
     slackService: new SlackService(validatedConfig, logger),
   };
 
-  const pipeline = new Pipeline(services, logger);
-  const interactionHandler = new InteractionHandler(services, logger);
+  const pipeline = new Pipeline(services, logger, validatedConfig);
+  const interactionHandler = new InteractionHandler(services, logger, {
+    signingSecret: validatedConfig.slack.signingSecret,
+    language: validatedConfig.language,
+  });
 
   return {
     /**
-     * 크래시 분석 파이프라인을 실행합니다.
-     * Crashlytics 이벤트 → Slack 알림 → GitHub 소스 조회 → Claude 분석 → Slack 쓰레드
+     * Runs the crash analysis pipeline.
+     * Crashlytics event → Slack alert → GitHub source lookup → Claude analysis → Slack thread
+     *
+     * analyzeCrash(event, "fatal")               — built-in label/emoji for an alert type
+     * analyzeCrash(event, "Custom label", "🧪")  — custom label and emoji
      */
-    analyzeCrash: (event, typeLabel, emoji) => pipeline.run(event, typeLabel, emoji),
+    analyzeCrash: (event, alertTypeOrLabel, emoji) => pipeline.run(event, alertTypeOrLabel, emoji),
 
     /**
-     * Slack 버튼 인터랙션을 처리합니다. (req, res 핸들러)
+     * Handles Slack button interactions (req, res handler).
      */
     handleSlackInteraction: (req, res) => interactionHandler.handle(req, res),
   };
 }
 
-module.exports = { createCrashlyticsBot };
+module.exports = { createCrashlyticsBot, createFunctions, ALERT_TRIGGERS, SECRET_NAMES };
