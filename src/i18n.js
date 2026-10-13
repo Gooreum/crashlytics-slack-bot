@@ -10,6 +10,7 @@ const ALERTS = {
   nonfatal: { emoji: "✨", label: { en: "New non-fatal issue", ko: "신규 비치명적 문제 발생" } },
   regression: { emoji: "↩️", label: { en: "Regressed issue", ko: "회귀됨 (다시 발생한 이슈)" } },
   velocity: { emoji: "📈", label: { en: "Trending issue (velocity alert)", ko: "반복되는 문제 (폭주 알림)" } },
+  anr: { emoji: "🧊", label: { en: "New ANR issue", ko: "신규 ANR 문제 발생" } },
 };
 
 const MESSAGES = {

@@ -6,6 +6,7 @@ const { ClaudeService } = require("./src/claude-service");
 const { SlackService } = require("./src/slack-service");
 const { Pipeline } = require("./src/pipeline");
 const { InteractionHandler } = require("./src/interaction");
+const { createFunctions, ALERT_TRIGGERS, SECRET_NAMES } = require("./src/functions");
 
 /**
  * Creates a Crashlytics Slack bot instance.
@@ -64,4 +65,4 @@ function createCrashlyticsBot(config) {
   };
 }
 
-module.exports = { createCrashlyticsBot };
+module.exports = { createCrashlyticsBot, createFunctions, ALERT_TRIGGERS, SECRET_NAMES };

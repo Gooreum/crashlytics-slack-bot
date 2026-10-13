@@ -39,7 +39,7 @@ test("TC-2 unknown or missing language falls back to English", () => {
 });
 
 test("TC-3 every alert type has an emoji and en/ko labels", () => {
-  assert.deepEqual(Object.keys(ALERTS), ["fatal", "nonfatal", "regression", "velocity"]);
+  assert.deepEqual(Object.keys(ALERTS), ["fatal", "nonfatal", "regression", "velocity", "anr"]);
   for (const alert of Object.values(ALERTS)) {
     assert.ok(alert.emoji);
     assert.ok(alert.label.en);
