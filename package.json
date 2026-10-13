@@ -9,10 +9,18 @@
   "engines": {
     "node": ">=18"
   },
-  "keywords": ["crashlytics", "firebase", "slack", "claude", "ai", "crash-analysis", "ios"],
+  "keywords": [
+    "crashlytics",
+    "firebase",
+    "slack",
+    "claude",
+    "ai",
+    "crash-analysis",
+    "ios"
+  ],
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.74.0",
+    "@anthropic-ai/sdk": "^0.129.0",
     "@octokit/rest": "^22.0.1",
     "@slack/web-api": "^7.14.1"
   },
@@ -21,7 +29,11 @@
     "firebase-functions": ">=4.0.0"
   },
   "peerDependenciesMeta": {
-    "firebase-admin": { "optional": true },
-    "firebase-functions": { "optional": true }
+    "firebase-admin": {
+      "optional": true
+    },
+    "firebase-functions": {
+      "optional": true
+    }
   }
 }

@@ -2,19 +2,19 @@
 
 const crypto = require("crypto");
 
-// Slack은 5분 이상 지난 요청을 재전송(replay) 공격으로 간주하도록 권장한다.
+// Slack recommends rejecting requests older than 5 minutes to prevent replay attacks.
 const MAX_AGE_SECONDS = 60 * 5;
 
 /**
- * Slack 요청 서명(X-Slack-Signature)을 검증합니다.
+ * Verifies a Slack request signature (X-Slack-Signature).
  * https://api.slack.com/authentication/verifying-requests-from-slack
  *
  * @param {Object} params
- * @param {string} params.signingSecret - Slack 앱의 Signing Secret
- * @param {string|Buffer} params.rawBody - 파싱 전 요청 본문
- * @param {string} params.timestamp - X-Slack-Request-Timestamp 헤더
- * @param {string} params.signature - X-Slack-Signature 헤더
- * @param {number} [params.now] - 현재 시각(ms), 테스트용
+ * @param {string} params.signingSecret - Slack app signing secret
+ * @param {string|Buffer} params.rawBody - Unparsed request body
+ * @param {string} params.timestamp - X-Slack-Request-Timestamp header
+ * @param {string} params.signature - X-Slack-Signature header
+ * @param {number} [params.now] - Current time in ms (for tests)
  * @returns {boolean}
  */
 function verifySlackSignature({ signingSecret, rawBody, timestamp, signature, now = Date.now() }) {

@@ -19,7 +19,7 @@ function oneOf(value, allowed, path) {
 }
 
 /**
- * config 유효성 검증 및 기본값 적용
+ * Validates the config and applies defaults.
  * @param {Object} userConfig
  * @returns {Object} validated config
  */
