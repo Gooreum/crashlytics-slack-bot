@@ -25,10 +25,12 @@ npx crashlytics-slack-bot init
 
 The wizard:
 
-1. Asks for your Firebase project, region, platform, and language (English or Korean).
-2. Checks your GitHub token, Anthropic API key, and Slack bot token against their APIs.
-3. Gives you a link that creates the Slack app from a pre-filled manifest, with the interactivity URL already set.
-4. Writes a `crashlytics-slack-bot/` folder, stores the secrets in Secret Manager, and deploys.
+1. Asks for a language (English or Korean). The rest of the wizard, the Slack messages, and the AI analysis use it.
+2. Shows a checklist of prerequisites and stops, changing nothing, if you're not ready yet.
+3. Asks for your Firebase project, region, and platform.
+4. Shows numbered steps for creating each credential right before asking for it, then checks it against the real API. If a check fails, the wizard says what's wrong and how to fix it, then asks again.
+5. Gives you a link that creates the Slack app from a pre-filled manifest, with the interactivity URL already set.
+6. Writes a `crashlytics-slack-bot/` folder, stores the secrets in Secret Manager, and deploys.
 
 Then send a sample crash to check the connection:
 
@@ -43,7 +45,7 @@ npx crashlytics-slack-bot test
 | Credential | Where | Notes |
 |---|---|---|
 | GitHub token | [Fine-grained token](https://github.com/settings/personal-access-tokens/new) | Access to your app repo. Contents, Pull requests, and Issues: read & write |
-| Anthropic API key | [console.anthropic.com](https://console.anthropic.com/settings/keys) | |
+| Anthropic API key | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Requires credits (*Settings → Billing*). `init` sends a one-token request to confirm the key works and has credits |
 | Slack bot token and signing secret | The Slack app created from the wizard's link | Bot token: *OAuth & Permissions*. Signing secret: *Basic Information*. Invite the bot to your alert channel with `/invite @Crashlytics Bot` |
 
 ## How it works

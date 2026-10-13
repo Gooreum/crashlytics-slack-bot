@@ -40,3 +40,16 @@ test("TC-5 configuration table covers every option", () => {
 test("TC-6 README is in English", () => {
   assert.equal(/[가-힣]/.test(readme), false);
 });
+
+test("S3-TC-1 Quick start describes the language choice, checklist, and per-question steps", () => {
+  const quickStart = readme.split("## Quick start")[1].split("## How it works")[0];
+  for (const phrase of ["language (English or Korean)", "checklist of prerequisites", "numbered steps", "how to fix it"]) {
+    assert.ok(quickStart.includes(phrase), phrase);
+  }
+});
+
+test("S3-TC-2 Anthropic row says credits are required and checked", () => {
+  const row = readme.split("\n").find((line) => line.startsWith("| Anthropic API key"));
+  assert.ok(row.includes("Requires credits"));
+  assert.ok(row.includes("has credits"));
+});
