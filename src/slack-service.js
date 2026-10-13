@@ -1,21 +1,24 @@
 "use strict";
 
 const { WebClient } = require("@slack/web-api");
+const { t } = require("./i18n");
 
+// Slack section blocks are limited to 3000 characters.
 const SLACK_BLOCK_LIMIT = 2900;
 
 class SlackService {
-  constructor(config, logger) {
-    this.client = new WebClient(config.slack.botToken);
+  constructor(config, logger, client = new WebClient(config.slack.botToken)) {
+    this.client = client;
     this.channelId = config.slack.channelId;
     this.github = config.github;
     this.firebase = config.firebase;
+    this.msg = t(config.language);
     this.logger = logger;
   }
 
   /**
-   * 크래시 초기 알림을 Slack에 전송하고 쓰레드 ts를 반환합니다.
-   * @param {Object} event - Crashlytics 이벤트
+   * Posts the initial crash alert and returns its ts (used as the thread root).
+   * @param {Object} event - Crashlytics event
    * @param {string} typeLabel
    * @param {string} emoji
    * @returns {Promise<string|null>} thread_ts
@@ -25,12 +28,12 @@ class SlackService {
     const issue = payload?.issue;
 
     if (!issue) {
-      this.logger.error(`${typeLabel} 이슈 데이터 없음`);
+      this.logger.error(`${typeLabel}: event has no issue data`);
       return null;
     }
 
     const fullAppId = event.appId || "";
-    const platform = fullAppId.includes("ios") ? "🍎 iOS" : "Unknown";
+    const platform = fullAppId.includes("ios") ? this.msg.platformNames.ios : this.msg.platformNames.unknown;
 
     const blocks = [
       {
@@ -40,33 +43,31 @@ class SlackService {
       {
         type: "section",
         fields: [
-          { type: "mrkdwn", text: `*플랫폼:*\n${platform}` },
-          { type: "mrkdwn", text: `*앱 버전:*\n${issue.appVersion || "N/A"}` },
+          { type: "mrkdwn", text: `*${this.msg.platformLabel}:*\n${platform}` },
+          { type: "mrkdwn", text: `*${this.msg.appVersionLabel}:*\n${issue.appVersion || "N/A"}` },
         ],
       },
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `*에러명:*\n\`${issue.title}\`\n*상세:*\n\`${issue.subtitle}\``,
+          text: `*${this.msg.errorLabel}:*\n\`${issue.title}\`\n*${this.msg.detailsLabel}:*\n\`${issue.subtitle}\``,
         },
       },
       {
         type: "context",
-        elements: [
-          { type: "mrkdwn", text: "🤖 AI 분석 중... 잠시 후 쓰레드에 결과가 달립니다." },
-        ],
+        elements: [{ type: "mrkdwn", text: this.msg.analyzing }],
       },
     ];
 
-    // Firebase 콘솔 링크 (projectId가 있을 때만)
+    // Firebase console link (only when projectId is known)
     if (this.firebase.projectId) {
       blocks.push({
         type: "actions",
         elements: [
           {
             type: "button",
-            text: { type: "plain_text", text: "Firebase 콘솔에서 보기" },
+            text: { type: "plain_text", text: this.msg.openInConsole },
             style: "danger",
             url: `https://console.firebase.google.com/project/${this.firebase.projectId}/crashlytics`,
           },
@@ -82,22 +83,22 @@ class SlackService {
       });
       return result.ts;
     } catch (error) {
-      this.logger.error("Slack 초기 알림 전송 실패:", error.message);
+      this.logger.error("Failed to post initial Slack alert:", error.message);
       return null;
     }
   }
 
   /**
-   * AI 분석 결과를 쓰레드 답글로 전송합니다.
+   * Posts the AI analysis as a thread reply, with Issue/PR buttons.
    * @param {string} threadTs
    * @param {string|null} analysis
    * @param {{title, subtitle, appVersion}} issue
    * @param {Array} sourceResults
    */
   async postAnalysisThread(threadTs, analysis, issue, sourceResults) {
-    const analysisText = analysis || "분석을 수행할 수 없었습니다. 데이터가 부족합니다.";
+    const analysisText = analysis || this.msg.analysisUnavailable;
 
-    // 긴 분석은 여러 블록으로 분할 (Slack 3000자 제한)
+    // Split long analyses across multiple blocks
     const analysisChunks = [];
     for (let i = 0; i < analysisText.length; i += SLACK_BLOCK_LIMIT) {
       analysisChunks.push(analysisText.slice(i, i + SLACK_BLOCK_LIMIT));
@@ -106,7 +107,7 @@ class SlackService {
     const blocks = [
       {
         type: "header",
-        text: { type: "plain_text", text: "🤖 AI 크래시 분석 결과", emoji: true },
+        text: { type: "plain_text", text: this.msg.analysisHeader, emoji: true },
       },
       { type: "divider" },
     ];
@@ -115,7 +116,7 @@ class SlackService {
       blocks.push({ type: "section", text: { type: "mrkdwn", text: chunk } });
     }
 
-    // 소스 코드 링크
+    // Source code links
     if (sourceResults && sourceResults.length > 0) {
       const { owner, repo, branch } = this.github;
       const fileLinks = sourceResults
@@ -128,12 +129,12 @@ class SlackService {
       if (fileLinks) {
         blocks.push(
           { type: "divider" },
-          { type: "section", text: { type: "mrkdwn", text: `📂 *관련 소스 코드:*\n${fileLinks}` } }
+          { type: "section", text: { type: "mrkdwn", text: `${this.msg.relatedSource}\n${fileLinks}` } }
         );
       }
     }
 
-    // 버튼용 데이터 (Slack value 2000자 제한)
+    // Button payload (Slack limits button values to 2000 characters)
     const buttonData = {
       title: issue.title || "Unknown crash",
       subtitle: issue.subtitle || "",
@@ -147,7 +148,7 @@ class SlackService {
     const actionElements = [
       {
         type: "button",
-        text: { type: "plain_text", text: "🐛 GitHub Issue 생성" },
+        text: { type: "plain_text", text: this.msg.createIssueButton },
         action_id: "create_github_issue",
         value: buttonValue,
       },
@@ -157,18 +158,15 @@ class SlackService {
     if (hasFixableFiles) {
       actionElements.push({
         type: "button",
-        text: { type: "plain_text", text: "🔀 수정 PR 생성" },
+        text: { type: "plain_text", text: this.msg.createPrButton },
         style: "primary",
         action_id: "create_fix_pr",
         value: buttonValue,
         confirm: {
-          title: { type: "plain_text", text: "수정 PR을 생성할까요?" },
-          text: {
-            type: "mrkdwn",
-            text: "Claude AI가 크래시 원인을 분석하고 수정 코드를 생성하여 PR을 만듭니다.\n\n⚠️ *반드시 코드 리뷰 후 머지해주세요.*",
-          },
-          confirm: { type: "plain_text", text: "PR 생성" },
-          deny: { type: "plain_text", text: "취소" },
+          title: { type: "plain_text", text: this.msg.confirmPrTitle },
+          text: { type: "mrkdwn", text: this.msg.confirmPrText },
+          confirm: { type: "plain_text", text: this.msg.confirmPrOk },
+          deny: { type: "plain_text", text: this.msg.confirmPrCancel },
         },
       });
     }
@@ -179,7 +177,7 @@ class SlackService {
       await this.client.chat.postMessage({
         channel: this.channelId,
         thread_ts: threadTs,
-        text: "AI 크래시 분석 결과",
+        text: this.msg.analysisFallbackText,
         blocks,
       });
       await this.client.reactions.add({
@@ -188,12 +186,12 @@ class SlackService {
         timestamp: threadTs,
       });
     } catch (error) {
-      this.logger.error("분석 쓰레드 전송 실패:", error.message);
+      this.logger.error("Failed to post analysis thread:", error.message);
     }
   }
 
   /**
-   * 쓰레드에 일반 텍스트 메시지를 전송합니다.
+   * Posts a plain message in a thread.
    */
   async postMessage(channelId, threadTs, text, blocks) {
     return this.client.chat.postMessage({
@@ -205,7 +203,7 @@ class SlackService {
   }
 
   /**
-   * 기존 메시지를 업데이트합니다.
+   * Updates an existing message.
    */
   async updateMessage(channelId, ts, text, blocks) {
     return this.client.chat.update({
