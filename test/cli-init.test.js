@@ -146,7 +146,7 @@ test("TC-4 invalid GitHub token is asked again", async () => {
   try {
     assert.equal(await s.run(), 0);
     assert.equal(s.ui.shown.prompts.filter((p) => p.message === "GitHub token").length, 2);
-    assert.equal(s.ui.shown.logs.filter((l) => l.startsWith("ERROR GitHub rejected")).length, 1);
+    assert.equal(s.ui.shown.logs.filter((l) => l === `ERROR ${WIZARD.en.errors.github[401]}`).length, 1);
     assert.equal(s.secrets.GITHUB_TOKEN.value, "ghp_good");
   } finally { s.cleanup(); }
 });
@@ -335,3 +335,15 @@ for (const language of ["en", "ko"]) {
     } finally { s.cleanup(); }
   });
 }
+
+test("P2S2-TC-7 Korean wizard explains a GitHub 404 in Korean and asks again", async () => {
+  const answers = ["ko", ...ANSWERS.slice(1)];
+  answers.splice(8, 1, "ghp_wrong_repo", "ghp_good");
+  const s = setup({ answers, fetch: okFetch({ "ghp_wrong_repo": 404 }).fetch });
+  try {
+    assert.equal(await s.run(), 0);
+    assert.ok(s.ui.shown.logs.includes(`ERROR ${WIZARD.ko.errors.github[404]("acme", "app")}`));
+    assert.equal(s.ui.shown.prompts.filter((p) => p.message === WIZARD.ko.githubTokenPrompt).length, 2);
+    assert.equal(s.secrets.GITHUB_TOKEN.value, "ghp_good");
+  } finally { s.cleanup(); }
+});

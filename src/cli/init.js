@@ -18,32 +18,50 @@ const REGIONS = [
 
 class Cancelled extends Error {}
 
-// ── Credential checks (each returns null when valid, or an error message) ──
+// ── Credential checks: null when valid, otherwise what went wrong and how to fix it ──
 
-async function checkGitHub(fetch, token, owner, repo) {
+async function checkGitHub(fetch, token, owner, repo, m = wizardMessages("en")) {
   const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
   });
   if (res.ok) return null;
-  return res.status === 404
-    ? `Repository ${owner}/${repo} not found, or the token can't access it.`
-    : `GitHub rejected the token (HTTP ${res.status}).`;
+  const e = m.errors.github;
+  if (res.status === 401) return e[401];
+  if (res.status === 403) return e[403];
+  if (res.status === 404) return e[404](owner, repo);
+  return e.other(res.status);
 }
 
-async function checkAnthropic(fetch, apiKey) {
-  const res = await fetch("https://api.anthropic.com/v1/models?limit=1", {
-    headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+// A one-token request (cheapest model) also catches an empty credit balance,
+// which listing models would not.
+const ANTHROPIC_CHECK_MODEL = "claude-haiku-5-5";
+
+async function checkAnthropic(fetch, apiKey, m = wizardMessages("en")) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({ model: ANTHROPIC_CHECK_MODEL, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }),
   });
-  return res.ok ? null : `Anthropic rejected the API key (HTTP ${res.status}).`;
+  // Rate limited or overloaded still means the key works.
+  if (res.ok || res.status === 429 || res.status === 529) return null;
+  const body = await res.json().catch(() => ({}));
+  const e = m.errors.anthropic;
+  if (res.status === 401) return e[401];
+  if (res.status === 403) return e[403];
+  if (/credit balance/i.test(body.error?.message || "")) return e.credit;
+  return e.other(res.status);
 }
 
-async function checkSlack(fetch, botToken) {
+async function checkSlack(fetch, botToken, m = wizardMessages("en")) {
   const res = await fetch("https://slack.com/api/auth.test", {
     method: "POST",
     headers: { Authorization: `Bearer ${botToken}` },
   });
   const body = await res.json().catch(() => ({}));
-  return body.ok ? null : `Slack rejected the bot token (${body.error || `HTTP ${res.status}`}).`;
+  if (body.ok) return null;
+  const e = m.errors.slack;
+  const code = body.error || `HTTP ${res.status}`;
+  return typeof e[code] === "string" ? e[code] : e.other(code);
 }
 
 function npmInstall(cwd) {
@@ -156,7 +174,7 @@ async function runInit(options, deps = defaultDeps()) {
     ui.note(m.githubTokenSteps(owner, repo), m.githubTokenTitle);
     const githubToken = await askValid(
       () => ui.password({ message: m.githubTokenPrompt, validate: required }),
-      (token) => checkGitHub(fetch, token, owner, repo),
+      (token) => checkGitHub(fetch, token, owner, repo, m),
       m.checking.github
     );
 
@@ -164,7 +182,7 @@ async function runInit(options, deps = defaultDeps()) {
     ui.note(m.anthropicSteps, m.anthropicTitle);
     const anthropicApiKey = await askValid(
       () => ui.password({ message: m.anthropicPrompt, validate: required }),
-      (key) => checkAnthropic(fetch, key),
+      (key) => checkAnthropic(fetch, key, m),
       m.checking.anthropic
     );
 
@@ -173,7 +191,7 @@ async function runInit(options, deps = defaultDeps()) {
     ui.note(m.slackSteps(manifestUrl(buildManifest({ interactivityUrl: requestUrl })), requestUrl), m.slackTitle);
     const slackBotToken = await askValid(
       () => ui.password({ message: m.slackBotTokenPrompt, validate: (v) => (v?.startsWith("xoxb-") ? undefined : m.slackBotTokenFormat) }),
-      (token) => checkSlack(fetch, token),
+      (token) => checkSlack(fetch, token, m),
       m.checking.slack
     );
     const slackSigningSecret = await ask(ui.password({ message: m.signingSecretPrompt, validate: required }));
