@@ -1,13 +1,30 @@
 {
   "name": "crashlytics-slack-bot",
-  "version": "1.0.0",
-  "description": "Firebase Crashlytics → Slack 알림 + Claude AI 분석 + GitHub PR 자동 생성 파이프라인",
+  "version": "2.0.0",
+  "description": "Firebase Crashlytics alerts in Slack, analyzed by Claude, with one-click GitHub issues and AI fix PRs",
   "main": "index.js",
+  "bin": {
+    "crashlytics-slack-bot": "bin/cli.js"
+  },
+  "files": [
+    "index.js",
+    "bin",
+    "src"
+  ],
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "prepublishOnly": "npm test"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Gooreum/crashlytics-slack-bot.git"
+  },
+  "homepage": "https://github.com/Gooreum/crashlytics-slack-bot#readme",
+  "bugs": {
+    "url": "https://github.com/Gooreum/crashlytics-slack-bot/issues"
   },
   "keywords": [
     "crashlytics",
@@ -16,7 +33,10 @@
     "claude",
     "ai",
     "crash-analysis",
-    "ios"
+    "ios",
+    "android",
+    "cloud-functions",
+    "cli"
   ],
   "license": "MIT",
   "dependencies": {
