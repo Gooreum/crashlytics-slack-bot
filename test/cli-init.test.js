@@ -15,9 +15,10 @@ const CANCEL = Symbol("cancel");
  */
 function fakeUi(answers) {
   const queue = [...answers];
-  const shown = { prompts: [], notes: [], logs: [], cancel: null, outro: null };
+  const shown = { prompts: [], notes: [], logs: [], timeline: [], cancel: null, outro: null };
   const answer = (kind) => async (opts) => {
     shown.prompts.push({ kind, ...opts });
+    shown.timeline.push({ type: "prompt", text: opts.message });
     if (queue.length === 0) throw new Error(`No answer queued for: ${opts.message}`);
     const value = queue.shift();
     if (value !== CANCEL && opts.validate) {
@@ -31,8 +32,8 @@ function fakeUi(answers) {
     intro() {},
     outro: (m) => { shown.outro = m; },
     cancel: (m) => { shown.cancel = m; },
-    note: (m) => shown.notes.push(m),
-    log: { info: (m) => shown.logs.push(m), success: (m) => shown.logs.push(m), error: (m) => shown.logs.push(`ERROR ${m}`) },
+    note: (m) => { shown.notes.push(m); shown.timeline.push({ type: "note", text: m }); },
+    log: { info: (m) => { shown.logs.push(m); shown.timeline.push({ type: "log", text: m }); }, success: (m) => shown.logs.push(m), error: (m) => shown.logs.push(`ERROR ${m}`) },
     spinner: () => ({ start() {}, stop() {} }),
     isCancel: (v) => v === CANCEL,
     select: answer("select"),
@@ -268,3 +269,69 @@ test("S2-TC-6 Blaze is no longer announced right before deploying", async () => 
     assert.ok(s.ui.shown.notes[0].includes("Blaze"));
   } finally { s.cleanup(); }
 });
+
+// ── Step-by-step guides right before each question ──
+
+function noteBefore(timeline, promptMessage) {
+  const i = timeline.findIndex((e) => e.type === "prompt" && e.text === promptMessage);
+  assert.ok(i > 0, `prompt not found: ${promptMessage}`);
+  assert.equal(timeline[i - 1].type, "note", `no note right before: ${promptMessage}`);
+  return timeline[i - 1].text;
+}
+
+for (const language of ["en", "ko"]) {
+  const m = WIZARD[language];
+  const tag = language === "en" ? "" : " (ko, P2S1-TC-6)";
+
+  test(`P2S1-TC-1 region help precedes the region question${tag}`, async () => {
+    const s = setup({ answers: [language, ...ANSWERS.slice(1)] });
+    try {
+      await s.run();
+      const note = noteBefore(s.ui.shown.timeline, m.regionPrompt);
+      assert.equal(note, m.regionHelp);
+      assert.ok(note.includes("asia-northeast3"));
+    } finally { s.cleanup(); }
+  });
+
+  test(`P2S1-TC-2 GitHub token steps precede the token question${tag}`, async () => {
+    const s = setup({ answers: [language, ...ANSWERS.slice(1)] });
+    try {
+      await s.run();
+      const note = noteBefore(s.ui.shown.timeline, m.githubTokenPrompt);
+      assert.equal(note, m.githubTokenSteps("acme", "app"));
+      for (const word of ["acme", "app", "Expiration", "Pending requests"]) assert.ok(note.includes(word), word);
+    } finally { s.cleanup(); }
+  });
+
+  test(`P2S1-TC-3 Anthropic steps precede the key question${tag}`, async () => {
+    const s = setup({ answers: [language, ...ANSWERS.slice(1)] });
+    try {
+      await s.run();
+      const note = noteBefore(s.ui.shown.timeline, m.anthropicPrompt);
+      assert.equal(note, m.anthropicSteps);
+      assert.ok(note.includes("Billing") && note.includes("sk-ant-"));
+    } finally { s.cleanup(); }
+  });
+
+  test(`P2S1-TC-4 Slack app steps precede the bot token question${tag}`, async () => {
+    const s = setup({ answers: [language, ...ANSWERS.slice(1)] });
+    try {
+      await s.run();
+      const note = noteBefore(s.ui.shown.timeline, m.slackBotTokenPrompt);
+      for (const word of ["Request to Install", "Show", "api.slack.com/apps?new_app=1", "crashlyticsSlackInteraction"]) {
+        assert.ok(note.includes(word), word);
+      }
+    } finally { s.cleanup(); }
+  });
+
+  test(`P2S1-TC-5 channel steps precede the channel question, invite hint follows${tag}`, async () => {
+    const s = setup({ answers: [language, ...ANSWERS.slice(1)] });
+    try {
+      await s.run();
+      const { timeline } = s.ui.shown;
+      assert.equal(noteBefore(timeline, m.channelPrompt), m.channelSteps);
+      const i = timeline.findIndex((e) => e.type === "prompt" && e.text === m.channelPrompt);
+      assert.deepEqual(timeline[i + 1], { type: "log", text: m.inviteBot });
+    } finally { s.cleanup(); }
+  });
+}

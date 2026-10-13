@@ -137,6 +137,7 @@ async function runInit(options, deps = defaultDeps()) {
       message: m.projectPrompt,
       options: projects.map((p) => ({ value: p.projectId, label: p.displayName, hint: p.projectId })),
     }));
+    ui.note(m.regionHelp, m.regionTitle);
     const region = await ask(ui.select({
       message: m.regionPrompt,
       options: REGIONS.map((r) => ({ value: r, label: r })),
@@ -160,6 +161,7 @@ async function runInit(options, deps = defaultDeps()) {
     );
 
     // 5. Anthropic
+    ui.note(m.anthropicSteps, m.anthropicTitle);
     const anthropicApiKey = await askValid(
       () => ui.password({ message: m.anthropicPrompt, validate: required }),
       (key) => checkAnthropic(fetch, key),
@@ -175,6 +177,7 @@ async function runInit(options, deps = defaultDeps()) {
       m.checking.slack
     );
     const slackSigningSecret = await ask(ui.password({ message: m.signingSecretPrompt, validate: required }));
+    ui.note(m.channelSteps, m.channelTitle);
     const channelId = await ask(ui.text({
       message: m.channelPrompt,
       validate: (v) => (/^[CG][A-Z0-9]{6,}$/.test(v || "") ? undefined : m.channelFormat),
