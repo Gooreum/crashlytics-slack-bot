@@ -21,6 +21,7 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.129.0",
+    "@clack/prompts": "^1.8.1",
     "@octokit/rest": "^22.0.1",
     "@slack/web-api": "^7.14.1"
   },
