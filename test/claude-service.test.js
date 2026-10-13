@@ -112,10 +112,11 @@ test("TC-8 custom model is used", async () => {
   assert.equal(client.requests[0].model, "claude-sonnet-5-5");
 });
 
-test("TC-9 Hangul only appears in src/i18n.js", () => {
+test("TC-9 Hangul only appears in the message dictionaries", () => {
   const srcDir = path.join(__dirname, "..", "src");
+  const dictionaries = ["i18n.js", path.join("cli", "messages.js")];
   const offenders = fs.readdirSync(srcDir, { recursive: true })
-    .filter((f) => f.endsWith(".js") && f !== "i18n.js")
+    .filter((f) => f.endsWith(".js") && !dictionaries.includes(f))
     .filter((f) => /[가-힣]/.test(fs.readFileSync(path.join(srcDir, f), "utf8")));
   assert.deepEqual(offenders, []);
 });
