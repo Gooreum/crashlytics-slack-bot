@@ -62,7 +62,7 @@ const WIZARD = {
       "   (without credits, every analysis fails)",
       "3. Settings → API Keys → Create Key → name it (e.g. crashlytics-slack-bot)",
       "4. Copy the key — it starts with sk-ant- and is shown only once",
-      "Each crash alert makes one Claude request; each fix PR makes one more.",
+      "Each crash alert makes one Claude request (two if the first attempt fails and is retried); each fix PR makes one more.",
     ].join("\n"),
     anthropicPrompt: "Anthropic API key",
 
@@ -217,7 +217,7 @@ const WIZARD = {
       "   (크레딧이 없으면 모든 분석이 실패합니다)",
       "3. Settings → API Keys → Create Key → 이름 입력 (예: crashlytics-slack-bot)",
       "4. 키를 복사합니다 — sk-ant-로 시작하며 한 번만 보여줍니다",
-      "크래시 알림 1건당 Claude 요청 1회, 수정 PR 1건당 1회가 추가로 쓰입니다.",
+      "크래시 알림 1건당 Claude 요청 1회(첫 시도가 실패해 재시도하면 2회), 수정 PR 1건당 1회가 추가로 쓰입니다.",
     ].join("\n"),
     anthropicPrompt: "Anthropic API 키",
 

@@ -53,3 +53,13 @@ test("S3-TC-2 Anthropic row says credits are required and checked", () => {
   assert.ok(row.includes("Requires credits"));
   assert.ok(row.includes("has credits"));
 });
+
+test("R3-TC-1 README cost note accounts for the retry", () => {
+  assert.ok(readme.includes("two if the first attempt fails"));
+});
+
+test("R3-TC-2 wizard Anthropic steps mention the retry in both languages", () => {
+  const { WIZARD } = require("../src/cli/messages");
+  assert.ok(WIZARD.en.anthropicSteps.includes("retried"));
+  assert.ok(WIZARD.ko.anthropicSteps.includes("재시도"));
+});
