@@ -36,12 +36,12 @@ const DEFAULT_REGION = "us-central1";
  * @param {string} [options.firebase.appId] - Only handle alerts for this Firebase app
  * @returns {Object<string, Function>} Cloud Functions keyed by export name
  */
-function createFunctions(options = {}) {
+function createFunctions(options = {}, { createBot } = {}) {
   // firebase-functions is a peer dependency, so load it only when needed.
   const { defineSecret } = require("firebase-functions/params");
   const { onRequest } = require("firebase-functions/v2/https");
   const crashlytics = require("firebase-functions/v2/alerts/crashlytics");
-  const { createCrashlyticsBot } = require("../index");
+  const build = createBot || require("../index").createCrashlyticsBot;
 
   const alerts = options.alerts || Object.keys(ALERT_TRIGGERS);
   const unknown = alerts.filter((key) => !ALERT_TRIGGERS[key]);
@@ -59,8 +59,10 @@ function createFunctions(options = {}) {
     memory: "512MiB",
   };
 
-  // secret.value() only works inside a running function, so build the bot per invocation.
-  const getBot = () => createCrashlyticsBot({
+  // secret.value() only works inside a running function, so build the bot on first use.
+  // Reusing it keeps per-instance caches (e.g. the GitHub file tree) warm across invocations.
+  let bot;
+  const getBot = () => (bot ||= build({
     ...options,
     github: { ...options.github, token: secrets.githubToken.value() },
     slack: {
@@ -69,7 +71,8 @@ function createFunctions(options = {}) {
       signingSecret: secrets.slackSigningSecret.value(),
     },
     claude: { ...options.claude, apiKey: secrets.anthropicApiKey.value() },
-  });
+    logger: options.logger || require("firebase-functions/logger"),
+  }));
 
   const alertOptions = {
     ...baseOptions,
