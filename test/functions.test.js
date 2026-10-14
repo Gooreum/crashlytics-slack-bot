@@ -61,3 +61,67 @@ test("TC-8 package index exposes the public API", () => {
   assert.equal(pkg.SECRET_NAMES.slackSigningSecret, "SLACK_SIGNING_SECRET");
   assert.ok(pkg.ALERT_TRIGGERS.fatal);
 });
+
+// ── Bot reuse and default logger ──
+
+const SECRET_ENV = {
+  SLACK_BOT_TOKEN: "xoxb-env", SLACK_SIGNING_SECRET: "sign-env",
+  ANTHROPIC_API_KEY: "sk-ant-env", GITHUB_TOKEN: "ghp-env",
+};
+
+async function invokeInteraction(fns, times) {
+  const saved = {};
+  for (const [k, v] of Object.entries(SECRET_ENV)) { saved[k] = process.env[k]; process.env[k] = v; }
+  try {
+    for (let i = 0; i < times; i++) {
+      await fns.crashlyticsSlackInteraction(
+        { method: "POST", url: "/", headers: {}, body: {}, get: () => undefined, header: () => undefined },
+        { status() { return this; }, send() { return this; }, setHeader() {}, getHeader() {}, on() {}, end() {} }
+      );
+    }
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+}
+
+function spyBot() {
+  const spy = { created: [], handled: 0 };
+  spy.createBot = (config) => {
+    spy.created.push(config);
+    return { handleSlackInteraction: async () => { spy.handled++; }, analyzeCrash: async () => {} };
+  };
+  return spy;
+}
+
+test("R1-TC-1 the bot is built once and reused across invocations", async () => {
+  const spy = spyBot();
+  await invokeInteraction(createFunctions(options(), { createBot: spy.createBot }), 2);
+  assert.equal(spy.created.length, 1);
+  assert.equal(spy.handled, 2);
+});
+
+test("R1-TC-2 the default logger is firebase-functions/logger", async () => {
+  const spy = spyBot();
+  await invokeInteraction(createFunctions(options(), { createBot: spy.createBot }), 1);
+  assert.equal(spy.created[0].logger, require("firebase-functions/logger"));
+});
+
+test("R1-TC-3 a custom logger is kept", async () => {
+  const spy = spyBot();
+  const logger = { log() {}, warn() {}, error() {} };
+  await invokeInteraction(createFunctions(options({ logger }), { createBot: spy.createBot }), 1);
+  assert.equal(spy.created[0].logger, logger);
+});
+
+test("R1-TC-4 secrets are mapped into the bot config", async () => {
+  const spy = spyBot();
+  await invokeInteraction(createFunctions(options(), { createBot: spy.createBot }), 1);
+  const c = spy.created[0];
+  assert.equal(c.github.token, "ghp-env");
+  assert.equal(c.slack.botToken, "xoxb-env");
+  assert.equal(c.slack.signingSecret, "sign-env");
+  assert.equal(c.claude.apiKey, "sk-ant-env");
+  assert.equal(c.slack.channelId, "C123");
+});
