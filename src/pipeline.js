@@ -76,7 +76,7 @@ class Pipeline {
   }
 
   _resolveAlert(alertTypeOrLabel, emoji) {
-    const alert = emoji === undefined ? ALERTS[alertTypeOrLabel] : undefined;
+    const alert = emoji === undefined && Object.hasOwn(ALERTS, alertTypeOrLabel) ? ALERTS[alertTypeOrLabel] : undefined;
     if (alert) return { typeLabel: alert.label[this.language] || alert.label.en, emoji: alert.emoji };
     return { typeLabel: alertTypeOrLabel, emoji: emoji || DEFAULT_EMOJI };
   }

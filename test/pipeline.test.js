@@ -51,3 +51,11 @@ test("TC-5 events without an issue stop before Slack", async () => {
   await new Pipeline(services, silentLogger, { language: "en" }).run({ data: {} }, "fatal");
   assert.deepEqual(calls.alerts, []);
 });
+
+test("R2-TC-1 labels named like Object.prototype keys are treated as plain labels", async () => {
+  for (const label of ["toString", "constructor"]) {
+    const { services, calls } = spies();
+    await new Pipeline(services, silentLogger, { language: "en" }).run(event, label);
+    assert.deepEqual(calls.alerts, [`🚨 ${label}`]);
+  }
+});
